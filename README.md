@@ -42,4 +42,4 @@ An intelligent, fully autonomous customer support agent built using **LangGraph*
    ```
 
 ---
-*Built via Agentic AI prototyping!*
+
