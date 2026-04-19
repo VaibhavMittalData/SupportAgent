@@ -1,0 +1,155 @@
+import streamlit as st
+import os
+from agent import graph
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage, AIMessage
+
+load_dotenv()
+
+st.set_page_config(page_title="ShopWave Support Agent", page_icon="🌊", layout="wide")
+
+# Modern Streamlit UI Design
+st.markdown("""
+<style>
+    .stAppHeader { display: none; }
+    .css-1d391kg { padding-top: 1rem; }
+    .title-text {
+        font-family: 'Inter', sans-serif;
+        background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 800;
+        font-size: 3em;
+        margin-bottom: 20px;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.5rem !important;
+        color: #4ECDC4 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# State initialization
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = [{"role": "assistant", "content": "Welcome to the ShopWave AI. How can I help you today? Please include your order ID and email where applicable."}]
+if "last_state" not in st.session_state:
+    st.session_state.last_state = None
+
+st.markdown('<div class="title-text">🌊 ShopWave Agent Console</div>', unsafe_allow_html=True)
+
+# Sidebar mapping directly to our Triage details
+with st.sidebar:
+    st.header("Agent Triage Analytics")
+    st.markdown("Real-time extraction via `LangGraph`")
+    st.divider()
+    
+    state = st.session_state.last_state
+    if state:
+        col1, col2 = st.columns(2)
+        col1.metric("Token ID", state.get("token", "N/A"))
+        
+        urgency = state.get("urgency", "Normal")
+        col2.metric("Urgency", urgency, delta="Escalated" if urgency=="High" else None, delta_color="inverse")
+        
+        col3, col4 = st.columns(2)
+        col3.metric("Category", str(state.get("category")).capitalize())
+        col4.metric("Tone", str(state.get("tone")).capitalize())
+        
+        st.divider()
+        st.subheader("Database Status")
+        st.metric("Customer Type", "Returning (Old)" if state.get("is_old_customer") else "New")
+        st.metric("Issue Match", "Existing Ticket Found" if state.get("is_old_issue") else "New Issue")
+            
+    else:
+        st.info("Awaiting initial user query to populate triage telemetry...")
+
+# Main Chat Interface
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+user_input = st.chat_input("Enter your request... (e.g. Cancel order ORD-1012)")
+
+if user_input:
+    # Show user message
+    st.chat_message("user").markdown(user_input)
+    st.session_state.chat_history.append({"role": "user", "content": user_input})
+    
+    if st.session_state.get("is_escalated", False):
+        with st.chat_message("assistant"):
+            reply = f"Thank you. We have recorded your number as {user_input}. A representative will reach out shortly."
+            st.markdown(reply)
+            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+    else:
+        with st.chat_message("assistant"):
+            with st.spinner("Agent is analyzing and executing tools..."):
+            
+                # Build memory context from session chat history (excluding the current user input)
+                chat_history_msgs = []
+                for msg in st.session_state.chat_history[:-1]:
+                    if msg["role"] == "user":
+                        chat_history_msgs.append(HumanMessage(content=msg["content"]))
+                    elif msg["role"] == "assistant":
+                        chat_history_msgs.append(AIMessage(content=msg["content"]))
+                        
+                initial_state = {
+                    "customer_message": user_input,
+                    "email": "unknown",
+                    "order_id": "unknown",
+                    "category": "",
+                    "tone": "",
+                    "is_old_customer": False,
+                    "is_old_issue": False,
+                    "urgency": "Normal",
+                    "token": "",
+                    "messages": chat_history_msgs,
+                    "status": "open",
+                    "escalation_summary": "",
+                    "audit_log": []
+                }
+                
+                try:
+                    final_state = graph.invoke(initial_state, config={"recursion_limit": 50})
+                    st.session_state.last_state = final_state
+                    
+                    # Check Escalation
+                    if final_state.get("status") == "escalated":
+                        st.session_state["is_escalated"] = True
+                        phone = "on record"
+                        email = final_state.get("email")
+                        if email and email != "unknown":
+                            try:
+                                import json
+                                with open("sample_data/customers.json", "r") as f:
+                                    customers = json.load(f)
+                                    for c in customers:
+                                        if c.get("email").lower() == email.lower():
+                                            phone = c.get("phone")
+                                            break
+                            except Exception:
+                                pass
+                        reply = f"🚨 **ESCALATED**: A person will contact you within 5 minutes on your mobile number ({phone}). If you would like us to call a particular number, please enter it below."
+                    else:
+                        last_msg = final_state["messages"][-1]
+                        reply_content = last_msg.content
+                        if isinstance(reply_content, list):
+                            reply = "".join(item.get("text", "") for item in reply_content if isinstance(item, dict) and "text" in item)
+                            if not reply:
+                                reply = str(reply_content)
+                        else:
+                            reply = str(reply_content)
+                        
+                    st.markdown(reply)
+                    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                    
+                    # Render Audit Log Expander right below
+                    with st.expander("Show Graph Audit Log"):
+                        for log in final_state.get("audit_log", []):
+                            st.text(log)
+                            
+                    st.rerun()
+                    
+                except Exception as e:
+                    err_msg = f"❌ Error executing graph: {e}"
+                    st.error(err_msg)
+                    st.session_state.chat_history.append({"role": "assistant", "content": err_msg})
