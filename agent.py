@@ -43,13 +43,14 @@ class TriageOutput(BaseModel):
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
 TOOLS = [
-    database.get_customer_info, 
-    database.get_order_details, 
-    database.get_product_policy, 
-    database.check_existing_tickets,
-    database.process_refund,
-    database.process_exchange,
-    database.create_ticket
+    database.get_order, 
+    database.get_customer, 
+    database.get_product, 
+    database.search_knowledge_base,
+    database.check_refund_eligibility,
+    database.issue_refund,
+    database.send_reply,
+    database.escalate
 ]
 llm_with_tools = llm.bind_tools(TOOLS)
 
@@ -87,7 +88,7 @@ def triage_node(state: TicketState) -> dict:
     log_audit(state, updates["audit_log"][0])
     
     # Old vs New Customer checking Database
-    customer_info_str = database.get_customer_info.invoke({"email": updates["email"]}) if updates["email"] != "unknown" else None
+    customer_info_str = database.get_customer.invoke({"email": updates["email"]}) if updates["email"] != "unknown" else None
     
     import json
     customer = None
@@ -107,14 +108,13 @@ def triage_node(state: TicketState) -> dict:
         log_audit(state, "New customer or email not found.")
 
     # Old vs New Issue
-    existing_tickets_str = database.check_existing_tickets.invoke({"email": updates["email"], "order_id": updates["order_id"] if updates["order_id"] != "unknown" else None}) if updates["email"] != "unknown" else "[]"
-    
     existing = []
-    if existing_tickets_str and existing_tickets_str != "No existing tickets found.":
-        try:
-            existing = json.loads(existing_tickets_str)
-        except json.JSONDecodeError:
-            existing = []
+    if updates["email"] != "unknown":
+        for t in database.TICKETS:
+            if t.get("customer_email", "").lower() == updates["email"].lower():
+                if updates["order_id"] != "unknown" and updates["order_id"].upper() not in t.get("body", "").upper():
+                    continue
+                existing.append(t)
 
     updates["is_old_issue"] = len(existing) > 0
     if updates["is_old_issue"]:
@@ -142,12 +142,6 @@ def triage_node(state: TicketState) -> dict:
 
 def resolve_node(state: TicketState) -> dict:
     log_audit(state, "Entering Resolve Node.")
-    policy_path = os.path.join(os.path.dirname(__file__), "company_policy.md")
-    try:
-        with open(policy_path, "r", encoding="utf-8") as f:
-            company_policy = f.read()
-    except FileNotFoundError:
-        company_policy = "Policy documentation not found. Escalate everything to human."
 
     system_prompt = f"""You are a helpful autonomous customer support agent for ShopWave.
     The customer ticket has been triaged. 
@@ -156,16 +150,14 @@ def resolve_node(state: TicketState) -> dict:
     Customer is Old?: {state.get('is_old_customer')}
     Token: {state.get('token')}
     
-    You have tools to look up order details, product policies, and to process refunds or exchanges.
-    1. If the user provided an order ID, strongly verify the order details. Once you have the order details, you MUST look up the product policy for the specific product_id in the order.
-    2. Evaluate the customer's request rigidly against the official ShopWave Employee Policy Handbook provided below.
-    3. If you resolve the issue, inform the user directly, focusing ONLY on the status of their request without revealing internal classifications like "standard tier" or "VIP".
-    4. CRITICAL STYLE GUIDE: Keep your responses exceptionally short and concise (under 2 sentences). Do not write long paragraphs explaining policies. Be extremely brief.
-    5. DO NOT ESCALATE PREMATURELY: If a customer demands a human but has NOT provided an order ID or explicitly stated their issue, you MUST ask them what their issue is first. Never output ESCALATE_TO_HUMAN instantly.
+    You MUST search the knowledge base using search_knowledge_base to check policies before making any refund or exchange decisions.
     
-    --- COMPANY POLICY HANDBOOK ---
-    {company_policy}
-    --- END OF COMPANY POLICY HANDBOOK ---
+    1. Look up the order details, customer tier, and product details.
+    2. Before issuing any refund, ALWAYS call check_refund_eligibility.
+    3. Issue a refund using issue_refund only if check_refund_eligibility confirms it is eligible.
+    4. You MUST use the send_reply tool to log responses. However, immediately after utilizing the tool, you MUST include the actual information/answer in your conversational text output to the user so they can read it!
+    5. If a situation violates policy, is a warranty claim, requires a supervisor, or is highly complex, use the escalate tool to route to human agents. Do not just output ESCALATE_TO_HUMAN.
+    6. CRITICAL STYLE GUIDE: Keep your responses exceptionally short and concise. Do not explain policies in long paragraphs.
     """
     msgs = [SystemMessage(content=system_prompt)] + state["messages"]
     
@@ -173,19 +165,11 @@ def resolve_node(state: TicketState) -> dict:
     log_audit(state, f"Agent responded. tool_calls={bool(response.tool_calls)}")
     return {"messages": [response]}
 
-def should_continue(state: TicketState) -> Literal["tools", "escalate_node", "END"]:
+def should_continue(state: TicketState) -> Literal["tools", "END"]:
     last_message = state["messages"][-1]
     if getattr(last_message, "tool_calls", None):
         return "tools"
-    msg_content = str(last_message.content).upper()
-    if "ESCALATE_TO_HUMAN" in msg_content:
-        return "escalate_node"
     return "END"
-
-def escalate_node(state: TicketState) -> dict:
-    log_audit(state, "Escalating ticket to human.")
-    summary = f"Escalation required. Ticket {state.get('token')} | Context: unable to autonomously resolve."
-    return {"escalation_summary": summary, "status": "escalated"}
 
 # Build Graph
 builder = StateGraph(TicketState)
@@ -193,17 +177,14 @@ builder = StateGraph(TicketState)
 builder.add_node("triage", triage_node)
 builder.add_node("resolve_node", resolve_node)
 builder.add_node("tools", ToolNode(TOOLS))
-builder.add_node("escalate_node", escalate_node)
 
 builder.add_edge(START, "triage")
 builder.add_edge("triage", "resolve_node")
 builder.add_conditional_edges("resolve_node", should_continue, {
     "tools": "tools",
-    "escalate_node": "escalate_node",
     "END": END
 })
 builder.add_edge("tools", "resolve_node")
-builder.add_edge("escalate_node", END)
 
 graph = builder.compile()
 

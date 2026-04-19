@@ -12,18 +12,18 @@ graph LR
     
     subgraph Backend Execution
         LG <--> LLM[Groq: llama-3.3-70b]
-        LG <--> Pol[(company_policy.md)]
     end
     
     subgraph Data Layer
         LG <--> DB[(Local JSON Database)]
+        DB <--> Pol[(company_policy.md)]
     end
 ```
 
-* **Streamlit UI (`app.py`)**: Intercepts chat and visually manages escalations without crashing the backend loop. 
+* **Streamlit UI (`app.py`)**: Intercepts chat, manages user display, and seamlessly parses tool call metadata to show real-time agent responses. 
 * **LangGraph Engine (`agent.py`)**: The central state-machine that routes information, processes history, and builds JSON context before querying the model.
 * **LLM Engine**: Powers the semantic reasoning, utilizing specific tool calls via the Groq endpoint.
-* **Company Policy (`company_policy.md`)**: A deterministic rulebook pushed into the prompt payload context.
+* **Company Policy (`company_policy.md`)**: A deterministic rulebook securely accessed via semantic search tools rather than static prompt injection.
 * **JSON Database (`database.py`)**: Local JSON structures mocking a standard SQL database for isolated writes and reads.
 
 ---
@@ -47,23 +47,22 @@ graph TD
     COND -- calls_tool --> Tools[/Tool Node/]::tools
     Tools --> Resolve
     
-    COND -- outputs_'ESCALATE_TO_HUMAN' --> Escalate(escalate_node):::node
-    COND -- standard_reply --> End((END)):::startend
-    
-    Escalate --> End
+    COND -- conversational_reply --> End((END)):::startend
 ```
 
 ### Node Explanations
-1. **`triage_node`**: This acts as a gateway proxy. It intercepts the raw user text and statically extracts data (`category`, `tone`, `email`, `order_id`). It then immediately interfaces with the database to inject "Old Customer/Issue" flags before the core model ever talks.
-2. **`resolve_node`**: The core "brain" of the agent. It securely interpolates `company_policy.md` and context parameters dynamically, then prompts the model to make a decision.
-3. **`Tool Node`**: Automatically binds tools. If the `resolve_node` wants to execute a structural tool (e.g. `process_refund`, `create_ticket`), LangGraph routes it here, builds the JSON payload, executes Python, and returns the result back to `resolve_node` for final translation.
-4. **`escalate_node`**: A secure exit hatch. If the agent hits a policy blockade, it terminates the generative loop, outputs an escalation summary to `app.py`, and halts further LLM inferences until manual review.
+1. **`triage_node`**: Acts as a gateway proxy. It intercepts the raw user text and statically extracts data (`category`, `tone`, `email`, `order_id`). It immediately interfaces with the database natively via standard python functions to inject "Old Customer/Issue" flags before the core model ever talks.
+2. **`resolve_node`**: The core "brain" of the agent. It securely interpolates context parameters dynamically and prompts the model to make decisions. Unlike legacy versions, it relies ENTIRELY on dynamic lookups via the `search_knowledge_base` tool to access policy logic, saving immense prompt token space.
+3. **`Tool Node`**: Automatically binds tools divided into two classes:
+   - **READ / LOOKUP**: `get_order`, `get_customer`, `get_product`, `search_knowledge_base`.
+   - **WRITE / ACT**: `check_refund_eligibility`, `issue_refund`, `send_reply`, `escalate`.
+   LangGraph routes requests here, builds the JSON payload, executes Python, and returns the result back to `resolve_node` for final translation.
 
 ---
 
 ## 3. Escalation & Guardrail Workflows
 
-To prevent premature escalation or prompt hijacking, the architecture employs aggressive sequence routing:
+To prevent premature escalation or prompt hijacking, the architecture employs aggressive sequence routing leveraging specific Write/Act tools:
 
 ```mermaid
 sequenceDiagram
@@ -77,16 +76,16 @@ sequenceDiagram
     
     Agent Pipeline->>Agent Pipeline: triage_node evaluates Tone=Frustrated
     
-    Agent Pipeline->>JSON Database: Extracts specific Product & Customer Tier history
-    JSON Database-->>Agent Pipeline: Returns Policy Notes
+    Agent Pipeline->>JSON Database: check_refund_eligibility tool assesses dates/tiers
+    JSON Database-->>Agent Pipeline: Returns Policy/Eligibility Blockers
     
-    note over Agent Pipeline: Model assesses company_policy.md
+    note over Agent Pipeline: Model assesses context
     
     alt Premature Guardrail Hit
-        Agent Pipeline-->>Streamlit UI: "What specific issue are you having?"
+        Agent Pipeline->>JSON Database: send_reply("What specific issue are you having?")
+        Agent Pipeline-->>Streamlit UI: Reads output and prompts user
     else Policy Blocked & VIP
-        Agent Pipeline->>JSON Database: create_ticket Tool (Writes TKT-NEW-...)
-        Agent Pipeline->>Agent Pipeline: should_continue routes to escalate_node()
+        Agent Pipeline->>JSON Database: escalate Tool (Updates JSON Status)
         Agent Pipeline-->>Streamlit UI: Flag: status=escalated
         Streamlit UI-->>User: 🚨 ESCALATED!
     end

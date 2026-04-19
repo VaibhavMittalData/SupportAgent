@@ -117,7 +117,24 @@
     "source": "email",
     "created_at": "2024-03-15T08:00:00Z",
     "tier": 1,
-    "expected_action": "order in processing status \u2014 cancel immediately, confirm cancellation"
+    "expected_action": "order in processing status \u2014 cancel immediately, confirm cancellation",
+    "replies": [
+      {
+        "from": "agent",
+        "message": "Your order has not been delivered yet. Please wait until you receive it to initiate a return.",
+        "timestamp": "2026-04-19T20:17:24.689304"
+      },
+      {
+        "from": "agent",
+        "message": "The price of the product is $89.99",
+        "timestamp": "2026-04-19T20:17:48.573331"
+      },
+      {
+        "from": "agent",
+        "message": "The price of the product is $89.99.",
+        "timestamp": "2026-04-19T20:18:09.022150"
+      }
+    ]
   },
   {
     "ticket_id": "TKT-013",
@@ -223,5 +240,27 @@
     "order_id": "unknown",
     "status": "open",
     "body": "customer wants to speak with a person"
+  },
+  {
+    "ticket_id": "TKT-B2B834D9",
+    "status": "open",
+    "replies": [
+      {
+        "from": "agent",
+        "message": "Hello, how can I assist you today?",
+        "timestamp": "2026-04-19T20:16:40.372556"
+      }
+    ]
+  },
+  {
+    "ticket_id": "TKT-B2282494",
+    "status": "open",
+    "replies": [
+      {
+        "from": "agent",
+        "message": "To assist with your exchange, could you please provide your order ID and email address?",
+        "timestamp": "2026-04-19T20:21:43.839609"
+      }
+    ]
   }
 ]

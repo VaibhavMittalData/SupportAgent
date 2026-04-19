@@ -130,14 +130,26 @@ if user_input:
                                 pass
                         reply = f"🚨 **ESCALATED**: A person will contact you within 5 minutes on your mobile number ({phone}). If you would like us to call a particular number, please enter it below."
                     else:
-                        last_msg = final_state["messages"][-1]
-                        reply_content = last_msg.content
-                        if isinstance(reply_content, list):
-                            reply = "".join(item.get("text", "") for item in reply_content if isinstance(item, dict) and "text" in item)
-                            if not reply:
+                        reply = None
+                        for msg in reversed(final_state["messages"]):
+                            if msg.type == "human":
+                                break
+                            if getattr(msg, "tool_calls", None):
+                                for tc in msg.tool_calls:
+                                    if tc.get("name") == "send_reply":
+                                        reply = tc.get("args", {}).get("message")
+                                        break
+                                if reply: break
+                        
+                        if not reply:
+                            last_msg = final_state["messages"][-1]
+                            reply_content = last_msg.content
+                            if isinstance(reply_content, list):
+                                reply = "".join(item.get("text", "") for item in reply_content if isinstance(item, dict) and "text" in item)
+                                if not reply:
+                                    reply = str(reply_content)
+                            else:
                                 reply = str(reply_content)
-                        else:
-                            reply = str(reply_content)
                         
                     st.markdown(reply)
                     st.session_state.chat_history.append({"role": "assistant", "content": reply})
