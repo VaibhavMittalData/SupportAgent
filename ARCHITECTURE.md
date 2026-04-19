@@ -62,31 +62,24 @@ graph TD
 
 ## 3. Escalation & Guardrail Workflows
 
-To prevent premature escalation or prompt hijacking, the architecture employs aggressive sequence routing leveraging specific Write/Act tools:
+The AI uses strict guardrails to make sure it doesn't accidentally approve invalid refunds, while also ensuring that actual human staff step in when things get complicated or VIP users need help.
+
+Here is a simple look at how the AI handles tricky customer situations:
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Streamlit UI
-    participant Agent Pipeline
-    participant JSON Database
+    participant AI Agent
+    participant Support Team
     
-    User->>Streamlit UI: "I want a refund. Talk to a human."
-    Streamlit UI->>Agent Pipeline: Initial TicketState Payload
+    User->>AI Agent: "I want a refund. Talk to a human."
     
-    Agent Pipeline->>Agent Pipeline: triage_node evaluates Tone=Frustrated
+    note over AI Agent: The AI checks the database to see if the refund is allowed.
     
-    Agent Pipeline->>JSON Database: check_refund_eligibility tool assesses dates/tiers
-    JSON Database-->>Agent Pipeline: Returns Policy/Eligibility Blockers
-    
-    note over Agent Pipeline: Model assesses context
-    
-    alt Premature Guardrail Hit
-        Agent Pipeline->>JSON Database: send_reply("What specific issue are you having?")
-        Agent Pipeline-->>Streamlit UI: Reads output and prompts user
-    else Policy Blocked & VIP
-        Agent Pipeline->>JSON Database: escalate Tool (Updates JSON Status)
-        Agent Pipeline-->>Streamlit UI: Flag: status=escalated
-        Streamlit UI-->>User: 🚨 ESCALATED!
+    alt Needs More Info (Guardrail)
+        AI Agent-->>User: "Sure, but what specific issue are you having first?"
+    else Valid Escalation (e.g. VIP Customer)
+        AI Agent->>Support Team: Logs the ticket for manual human review
+        AI Agent-->>User: 🚨 "I'm connecting you to a human agent right now."
     end
 ```
