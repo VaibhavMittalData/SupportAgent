@@ -11,31 +11,84 @@ st.set_page_config(page_title="ShopWave Support Agent", page_icon="🌊", layout
 # Modern Streamlit UI Design
 st.markdown("""
 <style>
-    .stAppHeader { display: none; }
-    .css-1d391kg { padding-top: 1rem; }
-    .title-text {
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+    
+    html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
+    }
+    
+    .stAppHeader { display: none; }
+    
+    .title-container {
+        text-align: center;
+        margin-bottom: 2rem;
+        padding: 2rem 0;
+        background: linear-gradient(180deg, rgba(78,205,196,0.1) 0%, rgba(255,255,255,0) 100%);
+        border-radius: 15px;
+    }
+
+    .title-text {
         background: -webkit-linear-gradient(45deg, #FF6B6B, #4ECDC4);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         font-weight: 800;
-        font-size: 3em;
-        margin-bottom: 20px;
+        font-size: 3.5rem;
+        margin-bottom: 0.2rem;
+        letter-spacing: -1px;
     }
+    
+    .subtitle-text {
+        font-size: 1.1rem;
+        color: #888;
+        font-weight: 400;
+    }
+
+    /* Elegant Card Design for Metrics */
     div[data-testid="stMetricValue"] {
-        font-size: 1.5rem !important;
+        font-size: 1.8rem !important;
         color: #4ECDC4 !important;
+        font-weight: 800 !important;
+    }
+    
+    div[data-testid="metric-container"] {
+        background: rgba(0, 0, 0, 0.03);
+        border-radius: 12px;
+        padding: 15px;
+        border: 1px solid rgba(0, 0, 0, 0.05);
+        transition: all 0.3s ease;
+    }
+    
+    @media (prefers-color-scheme: dark) {
+        div[data-testid="metric-container"] {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    }
+    
+    div[data-testid="metric-container"]:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    }
+
+    /* Responsive Chat Input */
+    div[data-testid="stChatInput"] {
+        padding-bottom: 1rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # State initialization
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "assistant", "content": "Welcome to the ShopWave AI. How can I help you today? Please include your order ID and email where applicable."}]
+    st.session_state.chat_history = [{"role": "assistant", "content": "👋 Welcome to the ShopWave AI Support Console. How can I help you today? Please include your order ID and email where applicable."}]
 if "last_state" not in st.session_state:
     st.session_state.last_state = None
 
-st.markdown('<div class="title-text">🌊 ShopWave Agent Console</div>', unsafe_allow_html=True)
+st.markdown('''
+<div class="title-container">
+    <div class="title-text">✨ ShopWave Agent</div>
+    <div class="subtitle-text">Your intelligent, autonomous retail support assistant</div>
+</div>
+''', unsafe_allow_html=True)
 
 # Sidebar mapping directly to our Triage details
 with st.sidebar:
