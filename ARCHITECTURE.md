@@ -44,7 +44,7 @@ graph TD
     
     Resolve --> COND{should_continue}
     
-    COND -- calls_tool --> Tools[/Tool Node/]::tools
+    COND -- calls_tool --> Tools[/Tool Node/]:::tools
     Tools --> Resolve
     
     COND -- conversational_reply --> End((END)):::startend
